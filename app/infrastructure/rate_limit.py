@@ -3,6 +3,7 @@ from app.infrastructure.redis import redis_client
 from app.settings import settings
 from app.application.common.errors import RateLimited, Banned
 
+
 class RedisRateLimiter(RateLimiter):
     async def check(self, api_key: str) -> None:
         ban_key = f"ban:{api_key}"
@@ -16,5 +17,11 @@ class RedisRateLimiter(RateLimiter):
             await redis_client.expire(key, 60)
 
         if count > settings.rate_limit_per_minute:
-            await redis_client.setex(ban_key, settings.rate_limit_ban_seconds, "1")
-            raise RateLimited("rate limit exceeded; banned for 60s")
+            pipe = redis_client.pipeline()
+            pipe.setex(ban_key, settings.rate_limit_ban_seconds, "1")
+            pipe.delete(key)
+            await pipe.execute()
+
+            raise RateLimited(
+                f"rate limit exceeded; banned for {settings.rate_limit_ban_seconds}s"
+            )
